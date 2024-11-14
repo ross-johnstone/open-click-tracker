@@ -85,6 +85,21 @@ class TrackerSpreadsheetApp:
             **{col: 'first' for col in contact_columns}
         })
 
+        # Convert engagement columns to numeric, set non-numeric to 0
+        for col in engagement_columns:
+            final_data[col] = pd.to_numeric(final_data[col], errors='coerce').fillna(0)
+
+        # Apply conditions to mark "Y" for Opens and Clicks
+        for col in ['Email_1_Opens', 'Email_2_Opens', 'Email_3_Opens']:
+            final_data[col] = final_data[col].apply(lambda x: 'Y' if x >= 2 else '')
+
+        for col in ['Email_1_Clicks', 'Email_2_Clicks', 'Email_3_Clicks']:
+            final_data[col] = final_data[col].apply(lambda x: 'Y' if x >= 1 else '')
+
+        # **Filter out rows with no engagement ('Y' values) in any engagement column**
+        final_data = final_data[final_data[engagement_columns].apply(lambda row: any(cell == 'Y' for cell in row), axis=1)]
+
+        # Add additional columns and reorder as before
         final_data['Contact Status (for Jacqui to add)'] = ""
         final_data['Topic'] = "Engaged with Email Campaign"
         final_data['Status Reason'] = "New"

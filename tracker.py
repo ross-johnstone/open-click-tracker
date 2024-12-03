@@ -33,7 +33,7 @@ class TrackerSpreadsheetApp:
             row_offset += 1
 
         # Process button
-        self.process_btn = tk.Button(root, text="Process & Save Tracker Spreadsheet", command=self.process_files, state="disabled")
+        self.process_btn = tk.Button(root, text="Process & Save Tracker Spreadsheet", command=self.process_files)
         self.process_btn.grid(row=row_offset, column=0, columnspan=2, padx=5, pady=10)
 
     def select_file(self, label):
@@ -41,36 +41,37 @@ class TrackerSpreadsheetApp:
         if file_path:
             self.file_paths[label] = file_path
             getattr(self, f"{label}_label").config(text=file_path.split('/')[-1], fg="black")
-        
-        if all(self.file_paths.values()):
-            self.process_btn.config(state="normal")
 
     def process_files(self):
         dataframes = {}
 
+        # Collect only the files that are provided
         for label, file_path in self.file_paths.items():
-            if not file_path:
-                messagebox.showerror("File Selection Error", f"{label} file is not selected.")
-                return
+            if file_path:  # Only process available files
+                df = pd.read_csv(file_path)
+                df.columns = df.columns.str.strip().str.lower()
+                engagement_column = "opens" if label.endswith("Opens") else "clicks"
+                required_columns = {
+                    'email address': 'Email Address',
+                    engagement_column: f'{label.replace(" ", "_")}',
+                    'first name': 'First Name', 'last name': 'Last Name', 'address': 'Address',
+                    'phone number': 'Phone Number', 'title': 'Title', 'company': 'Company',
+                    'job position': 'Job Position', 'company website': 'Company Website',
+                    'linkedin profile': 'LinkedIn Profile', 'member rating': 'Member Rating'
+                }
+                df = df.rename(columns=required_columns).reindex(columns=list(required_columns.values()), fill_value="")
+                dataframes[label] = df
 
-            df = pd.read_csv(file_path)
-            df.columns = df.columns.str.strip().str.lower()
-            engagement_column = "opens" if label.endswith("Opens") else "clicks"
-            required_columns = {
-                'email address': 'Email Address',
-                engagement_column: f'{label.replace(" ", "_")}',
-                'first name': 'First Name', 'last name': 'Last Name', 'address': 'Address', 
-                'phone number': 'Phone Number', 'title': 'Title', 'company': 'Company',
-                'job position': 'Job Position', 'company website': 'Company Website', 
-                'linkedin profile': 'LinkedIn Profile', 'member rating': 'Member Rating'
-            }
-            df = df.rename(columns=required_columns).reindex(columns=list(required_columns.values()), fill_value="")
-            dataframes[label] = df
+        # If no files are uploaded, create a blank spreadsheet
+        if not dataframes:
+            messagebox.showerror("No Input Files", "No files were provided. A blank spreadsheet will be created.")
+            self.save_blank_spreadsheet()
+            return
 
         # Consolidate all contacts and engagement data
         final_data = pd.concat(dataframes.values(), ignore_index=True)
-        
-        # Combine engagement data using groupby to ensure each email address has all engagement values
+
+        # Ensure all expected engagement columns are present
         engagement_columns = [
             'Email_1_Opens', 'Email_1_Clicks', 'Email_2_Opens', 'Email_2_Clicks', 'Email_3_Opens', 'Email_3_Clicks'
         ]
@@ -78,7 +79,12 @@ class TrackerSpreadsheetApp:
             'Email Address', 'First Name', 'Last Name', 'Address', 'Phone Number', 'Title', 'Company',
             'Job Position', 'Company Website', 'LinkedIn Profile', 'Member Rating'
         ]
-        
+
+        # Add missing engagement columns and fill with 0
+        for col in engagement_columns:
+            if col not in final_data.columns:
+                final_data[col] = 0
+
         # Group by "Email Address" and aggregate
         final_data = final_data.groupby('Email Address', as_index=False).agg({
             **{col: 'max' for col in engagement_columns},
@@ -96,7 +102,7 @@ class TrackerSpreadsheetApp:
         for col in ['Email_1_Clicks', 'Email_2_Clicks', 'Email_3_Clicks']:
             final_data[col] = final_data[col].apply(lambda x: 'Y' if x >= 1 else '')
 
-        # **Filter out rows with no engagement ('Y' values) in any engagement column**
+        # Filter out rows with no engagement ('Y' values) in any engagement column
         final_data = final_data[final_data[engagement_columns].apply(lambda row: any(cell == 'Y' for cell in row), axis=1)]
 
         # Add additional columns and reorder as before
@@ -108,12 +114,12 @@ class TrackerSpreadsheetApp:
 
         # Reorder columns as per requirements
         ordered_columns = [
-            'Contact Status (for Jacqui to add)', 'Email_1_Opens', 'Email_1_Clicks', 'Email_2_Opens', 
-            'Email_2_Clicks', 'Email_3_Opens', 'Email_3_Clicks', 'Email Address', 'First Name', 'Last Name', 
-            'Address', 'Phone Number', 'Title', 'Company', 'Job Position', 'Company Website', 
+            'Contact Status (for Jacqui to add)', 'Email_1_Opens', 'Email_1_Clicks', 'Email_2_Opens',
+            'Email_2_Clicks', 'Email_3_Opens', 'Email_3_Clicks', 'Email Address', 'First Name', 'Last Name',
+            'Address', 'Phone Number', 'Title', 'Company', 'Job Position', 'Company Website',
             'LinkedIn Profile', 'Member Rating', 'Topic', 'Status Reason', 'Campaign Code', 'Lead Source'
         ]
-        final_data = final_data[ordered_columns]
+        final_data = final_data.reindex(columns=ordered_columns, fill_value="")
 
         # Key data with specified colors
         key_data = {
@@ -144,11 +150,19 @@ class TrackerSpreadsheetApp:
 
                 # Add dividing borders between columns
                 thin_border = Border(left=Side(style='thin'))
-                for col in ["H","J", "L", "N"]:
+                for col in ["H", "J", "L", "N"]:
                     for row in range(2, len(final_data) + 2):
                         sheet[f"{col}{row}"].border = thin_border
 
             messagebox.showinfo("Success", f"Tracker Spreadsheet saved to {save_path}")
+
+    def save_blank_spreadsheet(self):
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")])
+        if save_path:
+            with Workbook() as wb:
+                wb.save(save_path)
+            messagebox.showinfo("Success", f"Blank spreadsheet saved to {save_path}")
+
 
 root = tk.Tk()
 app = TrackerSpreadsheetApp(root)
